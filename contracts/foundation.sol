@@ -1,3 +1,4 @@
+//version 0.3.5
 contract Foundation {
 
 	uint8 public maxDelegators;
@@ -87,7 +88,7 @@ contract Foundation {
 		return totalDelegators;		
 	}
 
-	function getDelegator(uint8 _delegatorId) returns (address)
+	function getDelegator(uint8 _delegatorId) constant returns (address)
 	{
 		address addr =msg.sender;
 		if ( _delegatorId < totalDelegators) {
@@ -95,8 +96,43 @@ contract Foundation {
 		}
 		return addr;
 	}
+	
+	function getBudgetRecipient(uint8 _budgetId)  constant returns (address)
+	{
+		if ( _budgetId < numBudgets) {
+			return budgets[_budgetId].recipient;
+		}
+		else return 0x0;
+	}
 
-    modifier onlyDelegator()
+	function getBudgetAmount(uint8 _budgetId)  constant returns (uint)
+	{
+		uint amount = 0;
+		if ( _budgetId < numBudgets) {
+			amount = budgets[_budgetId].amount;
+		}
+		return amount;
+	}
+
+	function getState(uint8 _budgetId) constant returns (State)
+	{
+		State state = State.Created;
+		if ( _budgetId < numBudgets) {
+			state = budgets[_budgetId].state;
+		}
+		return state;
+	}
+	
+	function getVotes(uint8 _budgetId) constant returns (bytes)
+	{
+		if ( _budgetId < numBudgets) {
+			return budgets[_budgetId].votes;
+		}
+		else return "";
+	}
+
+
+	modifier onlyDelegator()
     {
         bool founded =false;
 		for (uint8 i = 0; i < delegators.length; ++i) {
@@ -110,7 +146,7 @@ contract Foundation {
 		_							
     }
 
-    function getDelegatorId(address _addr) internal returns (uint8)
+    function getDelegatorId(address _addr) constant returns (uint8)
     {
         uint8 delegatorId = maxDelegators;
         for (uint8 i = 0; i < delegators.length; ++i) {
@@ -135,23 +171,24 @@ contract Foundation {
     }
 
     /* 0x01= con , 0x02 =pro */        
-	function voteBudget(uint _budgetID, byte _position) 
-		onlyDelegator returns (uint voteID)
+	function voteBudget(uint _budgetID, uint8 _position) 
+		onlyDelegator returns (uint8)
 	{
         Budget b = budgets[_budgetID];
         uint8 delegatorId;
-		if ( (_position ==1 || _position ==2) && (b.state == State.Active || b.state == State.Created ) ) {
-            delegatorId = getDelegatorId(msg.sender);
-            if (delegatorId >= maxDelegators ) return;
-
+		if ( (_position == 1 || _position ==2) && (b.state == State.Active || b.state == State.Created ) ) {
 			/* have first vote, budget active*/
-			if ( b.state != State.Active ) {
+			if ( b.state == State.Created ) {
 				b.state = State.Active;
-				b.votes.length = 32;
+				b.votes.length = maxDelegators;
 				b.votes[delegatorId] = b.votes[delegatorId] & 0x0;
 			}
-            b.votes[delegatorId] = _position;
-            BudgetVoted(_budgetID, msg.sender,  _position);
+            delegatorId = getDelegatorId(msg.sender);
+            if (delegatorId >= maxDelegators ) return 0;
+            
+            b.votes[delegatorId] = byte(_position);
+            BudgetVoted(_budgetID, msg.sender,  byte(_position));
+            return 1;
 		}
 	}
 	
@@ -162,9 +199,11 @@ contract Foundation {
         /* Check if debating period is over */
         if (now > (b.creationDate + debatingDays) && b.state == State.Active ){   
 	        proDelegatorNum = 0;
+	        uint8 vote ;
 			/* tally the votes */
             for (uint i = 0; i <  b.votes.length; ++i) {
-                if (b.votes[i] == 2) ++proDelegatorNum; 
+                vote = uint8(b.votes[i]);
+                if (vote == 2) ++proDelegatorNum; 
             }
             /* execute result */
             if (proDelegatorNum >= (totalDelegators+1)/2 ) {
@@ -188,21 +227,28 @@ contract Foundation {
 		//result = b.state
     }
 
-    /* 1= pro, 2 = con, 
-	5= tick, delegators who voted the budget can tick it  ,then payment will happen
+    /* 8= tick, 4 = veto 
+	delegators who voted the budget can tick it  ,then payment will happen
 	*/        
-	function tickBudget(uint _budgetID, byte _position) 
+	function tickBudget(uint _budgetID, uint8 _position) 
 		onlyDelegator returns (byte)
 	{
         Budget b = budgets[_budgetID];
         uint8 delegatorId;        
-		if ( b.state ==  State.Pending && _position == 5 ) {
+		if ( b.state ==  State.Pending && ( _position == 8 || _position == 4 )) {
             delegatorId = getDelegatorId(msg.sender);            
-            if (delegatorId >= maxDelegators ) return byte(delegatorId);
-            if (b.votes[delegatorId] >=5) return b.votes[delegatorId] ;            
-            b.votes[delegatorId] = b.votes[delegatorId] | _position;
-			/* have a vote, budget active*/
-            BudgetTicked(_budgetID, msg.sender, _position);
+            // out of range
+			if (delegatorId >= maxDelegators ) return byte(delegatorId);
+			// same vote again
+			uint8 vote8;
+			uint8 vote4;
+			vote8 = uint8(b.votes[delegatorId] & 0x08);
+			vote4 = uint8(b.votes[delegatorId] & 0x04);			
+			if ((vote8 == _position) || (vote4 == _position) )
+				return b.votes[delegatorId] ;            
+			b.votes[delegatorId] = b.votes[delegatorId] & 0x03 | byte(_position);
+			/* have a vote, budget ticked or not*/
+            BudgetTicked(_budgetID, msg.sender, byte(_position));
 		}
 	}
 
@@ -217,10 +263,14 @@ contract Foundation {
 		if ( b.state == State.Pending) {
 			if ( now <= b.confirmDate + b.executeDays ){   
 				/* how many delegator agreed the payment */
+		        uint8 vote8;
+		        uint8 vote4;
 		        for (uint i = 0; i <  b.votes.length; ++i) {
-				    if ( b.votes[i] >= 5) 
+				    vote8 = uint8(b.votes[i] & 0x08);
+                    vote4 = uint8(b.votes[i] & 0x04);				    
+				    if ( vote8 == 8) 
 						++tickDelegatorNum; 
-					else if ( b.votes[i] >= 1) 
+					else if ( vote4 == 4) 
 					 	++vetoDelegatorNum; 
 	            }
 		        /* total of agreed is bigger than 1/2 delegators, will pay to recipient */

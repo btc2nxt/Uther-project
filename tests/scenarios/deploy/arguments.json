@@ -1,0 +1,11 @@
+[{
+    "name": "max_delegate_number",
+    "default": 5,
+    "description":"Number of delegate in foundation",
+    "type":"int"
+}, {
+    "name": "debating_days",
+    "default": 0,
+    "description": "debating days",
+    "type": "int"
+}]

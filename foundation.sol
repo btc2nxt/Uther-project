@@ -9,11 +9,11 @@ contract Foundation {
     Budget[] public budgets;
 	Delegator[] public delegators;
 
-   struct Delegator {
+	struct Delegator {
     address addr;
     uint amount;
     bytes32 bitcointalkId;
-  }
+	}
 
 	struct Budget {
         address recipient;

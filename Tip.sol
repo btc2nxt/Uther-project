@@ -1,10 +1,11 @@
-/// tip users 0.1.1
+/// tip users 0.1.2
 contract Tip
 {
     uint8 maxTipsLen; //the contract contains tips ceiling, default 32
     uint8 maxTipQuantity; //every tip can not overtake the max, default 32
     uint totalAmount;
     uint totalTip; //has create new tips
+	address creator;
 
     struct OneTip
     {
@@ -38,12 +39,16 @@ contract Tip
 		maxTipQuantity = _maxTipQuantity;
 		totalTip = 0;
 		totalAmount = 0;
+		creator =msg.sender;
     }
 
     // create a new tip for users to snap, afterHours=0 ,start now
     function newTip(uint _amount, uint8 _quantity, bool _randomTip, uint _afterHours) returns (uint)
     {
-        //over the ceiling, less then 1 tip
+        //TO DO, will add a state to the tip, so anyone can new a tip.
+		if (msg.sender != creator)
+			throw;
+		//over the ceiling, less then 1 tip
 		if (tips.length == maxTipsLen  || _quantity < 1)
             throw;
 		tips.push(OneTip({tipper: msg.sender, amount: _amount, quantity: _quantity, randomTip: _randomTip , startDate: now + _afterHours * 1 hours, snappedQuantity: 0, snappedAmount:0 }));
@@ -170,4 +175,14 @@ contract Tip
 		}
 		return(tipId, futureMinute);
 	}
+	
+    /**********
+     Standard kill() function to recover funds 
+     **********/
+    
+    function kill()
+    { 
+        if (msg.sender == creator)
+            suicide(creator);  // kills this contract and sends remaining funds back to creator
+    }	
 }

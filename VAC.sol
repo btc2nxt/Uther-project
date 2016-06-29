@@ -1,6 +1,5 @@
-// Virtual Autonomous Company (VAC) 0.0.1
-contract VAC
-{
+// Virtual Autonomous Company (VAC) 0.0.2
+contract VAC {
     uint8 maxReferees; //maximize referees, default 9
 	uint maxContractors; //maximize contractor; default 255
 	uint8 professorNumber; //need how many professors to review a contract ,2 
@@ -12,11 +11,12 @@ contract VAC
     uint8 waitWeeks; //after setting weeks, deposit percent will act, so every member should re-deposit to get the limit
 	uint8 totalReferees;
 	address creator;
+	
+	bytes8 emptyDrawData;
 
 	// who gets the information from the real world, and inject to blockchain.
 	// or audit contractor's contract.
-	struct Referee
-    {
+	struct Referee {
 		address addr; 
 		uint deposit; //ensure data is right, otherwise will deduct from deposit
 		uint commission; //get reward
@@ -30,8 +30,7 @@ contract VAC
     }
 
 	//who creats a contract, and register to VAC, so get ensured data ,and pay some % to the refrees;
-	struct Contractor
-	{
+	struct Contractor {
 		address owner;
 		uint deposit;
 		address contractAddress;
@@ -45,10 +44,10 @@ contract VAC
 		uint updateTime; //when update this contract;
 		Contractor_State state; //contractor's state: running;waiting-update;updated;
 		bytes reviewProfessorIds; //{01 04} {02 08} means id=01 ,con but id=2 pro.
-		bytes8[] drawDatas; //every referee write its drawData here order by refereeIds
-		uint8[8] refereeIds; //bytes->swap error; byte[8]->store wrong position		
+		bytes8[8] refereeDrawDatas; //every referee write its drawData here order by refereeIds. bytes8 array cannot be written
+		uint[8] refereeIds; //bytes->swap error; byte[8]->store wrong position		
 	}
-
+	
 	/*
 	created: 
 	Reviewing: professors are review source code of the contract
@@ -65,7 +64,14 @@ contract VAC
     Contractor[] public contractors;
 	Referee[] public referees;
 
-    function VAC(uint8 _maxReferees, uint8 _maxRequestRefereeNumber, uint8 _minRequestRefereeNumber, uint8 _contractorDepositPercent, uint8 _refereeDepositPercent, uint _initDeposit, uint8 _waitWeeks)
+    function VAC(
+		uint8 _maxReferees, 
+		uint8 _maxRequestRefereeNumber, 
+		uint8 _minRequestRefereeNumber, 
+		uint8 _contractorDepositPercent, 
+		uint8 _refereeDepositPercent, 
+		uint _initDeposit, 
+		uint8 _waitWeeks)
     {
 		maxReferees = _maxReferees;
 		maxContractors = 255;
@@ -77,27 +83,23 @@ contract VAC
 		initDeposit = _initDeposit;
 		waitWeeks = _waitWeeks;
 		creator =msg.sender;
+		emptyDrawData = 0xff00ff00ff00ff00;
     }
 	
 	//anyone can become a referee, only if send a deposit.
 	//in case someone register all referees, so in the future, only creator can add referee or every referee and invite one
-	function addReferee(address _addr, uint _deposit, bool _isProfessor) returns (uint8 )
-	{
+	function addReferee(address _addr, uint _deposit, bool _isProfessor) returns (uint8 ) {
 		bool found = false;
-		if ( totalReferees <= maxReferees && totalReferees >0) 
-		{
-			for (uint i = 0; i < totalReferees; ++i) 
-			{
-				if (referees[i].addr == _addr) 
-				{
+		if ( totalReferees <= maxReferees && totalReferees >0) {
+			for (uint i = 0; i < totalReferees; ++i) {
+				if (referees[i].addr == _addr) {
 					found =true; 
 					break;
 				}
             }			
 		}
 		
-		if ( !found && _deposit >= initDeposit) 
-		{
+		if ( !found && _deposit >= initDeposit) {
 			referees.push(Referee(_addr, _deposit, 0,0,0,0, false,now,0, _isProfessor));
 			totalReferees++;			
 		}
@@ -105,8 +107,7 @@ contract VAC
 		return totalReferees;		
 	}
 
-	modifier onlyReferee()
-    {
+	modifier onlyReferee() {
         bool founded =false;
 		for (uint8 i = 0; i < referees.length; ++i) {
 			if (msg.sender == referees[i].addr) {
@@ -119,8 +120,7 @@ contract VAC
 		_							
     }
     
-	modifier onlyProfessor()
-    {
+	modifier onlyProfessor() {
         bool founded =false;
 		for (uint8 i = 0; i < referees.length; ++i) {
 			if (msg.sender == referees[i].addr && referees[i].isProfessor ) {
@@ -133,8 +133,7 @@ contract VAC
 		_							
     }
     
-    function getRefereeId(address _addr) internal returns (uint8)
-    {
+    function getRefereeId(address _addr) internal returns (uint8) {
         uint8 refereeId = maxReferees+1;
         for (uint8 i = 0; i < referees.length; ++i) {
 			if (_addr == referees[i].addr) {
@@ -146,8 +145,7 @@ contract VAC
 
 	
 	// any user can create one
-    function newContractor(uint _deposit, address _addr, uint8 _requestRefereeNumber) returns (uint)
-    {
+    function newContractor(uint _deposit, address _addr, uint8 _requestRefereeNumber) returns (uint) {
 		//over the ceiling, or not enough deposit
 		if (contractors.length == maxContractors  || _deposit < initDeposit)
             throw;
@@ -161,7 +159,7 @@ contract VAC
 		c.state = Contractor_State.Created;
 		c.reviewProfessorIds.length = 2*2;
 		//c.refereeIds = 0x00;
-		c.drawDatas.length = 0;
+		//c.refereeDrawDatas.length = 0;
 		return contractors.length;
     }
 
@@ -171,8 +169,7 @@ contract VAC
 	{
         Contractor c = contractors[_contractorId];
         uint8 professorId;
-		if ( (_position ==1 || _position ==4 || _position ==8) && (c.state == Contractor_State.Created || c.state == Contractor_State.Reviewing ) ) 
-		{
+		if ( (_position ==1 || _position ==4 || _position ==8) && (c.state == Contractor_State.Created || c.state == Contractor_State.Reviewing ) ) {
             professorId = getRefereeId(msg.sender);
             if (professorId > maxReferees ) return;
 
@@ -185,17 +182,14 @@ contract VAC
 			}
 
             uint8 nIndex = professorNumber;
-			for (uint8 i = 0; i < professorNumber; ++i)
-			{
+			for (uint8 i = 0; i < professorNumber; ++i) {
 				//position =0, no review
-				if (c.reviewProfessorIds[i*2+1] == 0 )
-				{
+				if (c.reviewProfessorIds[i*2+1] == 0 ) {
 					nIndex = i;
 					break;
 				}
 				//find its refereeId,may updated it
-				if (c.reviewProfessorIds[i*2] == byte(professorId) )
-				{
+				if (c.reviewProfessorIds[i*2] == byte(professorId) ) {
 					nIndex = i;
 					break;
 				}
@@ -213,8 +207,7 @@ contract VAC
 			uint8 nPass =0;
 			uint8 nVeto =0;
 			if (c.reviewProfessorIds[professorNumber*2 -1] > 0)
-			for ( i = 0; i < professorNumber; ++i)
-			{
+			for ( i = 0; i < professorNumber; ++i) {
 				//position =0, no review
 				if (c.reviewProfessorIds[i*2+1] == 8 )
 					nPass++;
@@ -234,39 +227,39 @@ contract VAC
 	{
         Contractor c = contractors[_contractorId];
         uint8 refereeId;
-		if ( c.state ==  Contractor_State.Binding )
+		if (c.state ==  Contractor_State.Binding)
 		{
             refereeId = getRefereeId(msg.sender);
 			//now this referee
             if (refereeId > maxReferees ) return; //throw; when in blockchain
 
 			// first binding
-			if ( c.state == Contractor_State.Binding && c.refereeIds[0] ==0) 
-			{
+			if (c.state == Contractor_State.Binding && c.refereeIds[0] == 0) {
 				//c.refereeIds.length = c.requestRefereeNumber ;
-				c.drawDatas.length = c.requestRefereeNumber ;
+				/* dynamic bytes8[] get error with setting value
+				*/
+				//c.refereeDrawDatas.length = c.requestRefereeNumber ;
 				c.refereeIds[0] = uint8(refereeId);
+				c.refereeDrawDatas[0] = emptyDrawData;
 				return;
 			}
 
 			uint8 nIndex = c.requestRefereeNumber;
-			for (uint8 i = 0; i < c.requestRefereeNumber; ++i)
-			{
+			for (uint8 i = 0; i < c.requestRefereeNumber; ++i) {
 				//position =0, no review
-				if (c.refereeIds[i] == 0 )
-				{
+				if (c.refereeIds[i] == 0) {
 					nIndex = i;
 					break;
 				}
 				//find its refereeId
-				if (c.refereeIds[i] == uint8(refereeId) )
-				{
+				if (c.refereeIds[i] == uint8(refereeId))
 					return; //throw;//binded, cannot bind again with same referee
-				}
 			}
 			//find a available postion, link its referee id in;
-			if (nIndex != c.requestRefereeNumber)
+			if (nIndex != c.requestRefereeNumber) {
 				c.refereeIds[nIndex] = uint8(refereeId);
+				c.refereeDrawDatas[nIndex] = emptyDrawData;
+			}
 			//all referees binded, state change to sleeping;
 			if (c.refereeIds[c.requestRefereeNumber-1] > 0)
 				c.state = Contractor_State.Sleeping;
@@ -274,18 +267,17 @@ contract VAC
 	}
 
 
-	function StartContract(uint _contractorId, uint _beginTime, uint _endTime, uint _deadline) 
-	{
+	function StartContract(uint _contractorId, uint _beginTime, uint _endTime, uint _deadline) {
         Contractor c = contractors[_contractorId];
 		//only owner can start contract with begin,endtime;
 		if (c.owner != msg.sender)
 			throw;
-		if (c.state == Contractor_State.Sleeping)
-		{
+		if (c.state == Contractor_State.Sleeping) {
 			c.beginTime = _beginTime;
 			c.endTime = _endTime;
 			c.deadline = _deadline;
-			c.state == Contractor_State.Pending;
+			c.drawData = 0xff;
+			c.state = Contractor_State.Active;
 		}
 	}
 	
@@ -304,19 +296,16 @@ contract VAC
 	{
         Contractor c = contractors[_contractorId];
         uint8 refereeId;
-		if ( c.state ==  Contractor_State.Active && now > c.endTime && now < c.deadline )
-		{
+		if ( c.state ==  Contractor_State.Active && now > c.endTime && now < c.deadline ) {
             refereeId = getRefereeId(msg.sender);
 			//now this referee
             if (refereeId > maxReferees ) return; //throw; when in blockchain
 
 			uint8 nIndex = c.requestRefereeNumber;
 			//find the referee's  position
-			for (uint8 i = 0; i < c.requestRefereeNumber; ++i)
-			{
+			for (uint8 i = 0; i < c.requestRefereeNumber; ++i) {
 				//find its refereeId
-				if (c.refereeIds[i] == (refereeId) )
-				{
+				if (c.refereeIds[i] == (refereeId) ) {
 					nIndex = i;
 					break;
 				}
@@ -325,54 +314,54 @@ contract VAC
 			if (nIndex == c.requestRefereeNumber)
 				throw; //invalid referee, which not binded to this contract
 			
-			c.drawDatas[0] = _drawData;
-			//update drawData
-			if (c.state == Contractor_State.Active)
-				c.state = Contractor_State.Pending;
+			c.refereeDrawDatas[nIndex] = _drawData;
 			//first referee set the drawData
-			if (c.drawData[0] == 0xFF)
+			if (c.drawData[0] == 0xff)
 				c.drawData = _drawData;
-			else if ( c.drawData != _drawData) //different drawdata
-			{
-				uint8 nDraw =0;
-				uint8 nDraw1 =0;
-				for ( i = 0; i < c.requestRefereeNumber; ++i)
-				{
+			else {
+				uint8 nDraw = 0;
+				uint8 nDraw1 = 0;
+				uint8 totalDraw = 0;
+				for ( i = 0; i < c.requestRefereeNumber; ++i) {
+					if (c.refereeDrawDatas[i] != emptyDrawData)
+					totalDraw++;
 					//find its refereeId
-					if (c.drawDatas[i] == _drawData )
-						nDraw1++;
-					else if (c.drawDatas[i] == c.drawData )
+					if (c.refereeDrawDatas[i] == c.drawData)
 						nDraw++;
+					else if (c.refereeDrawDatas[i] == _drawData && c.drawData != _drawData) //different drawdata)
+						nDraw1++;
 				}
 				if (nDraw1 > nDraw) 
 					c.drawData = _drawData;
+				
+				//over half referees's drawdata are same;
+				if (totalDraw == c.requestRefereeNumber && nDraw >= (totalDraw+1)/2) {
+					c.state = Contractor_State.Pending;	
+					c.safed =true;
+				}
 			}
 		}
 	}
 
 	/*
-	owner run this function, so have enough time to handle exception, like data faild
+	owner run this function, so have enough time to handle exception, like data faild.
 	over 1/2 referees have same data, the result is safe.
 	*/
 	function SealDrawData(uint _contractorId) returns(bool)
 	{
         Contractor c = contractors[_contractorId];
         uint nDraw =0 ;
-		if ( c.state ==  Contractor_State.Pending && now > c.deadline )
-		{
-			for (uint8 i = 0; i < c.requestRefereeNumber; ++i)
-			{
-				if (c.drawDatas[i] == c.drawData )
+		if ( c.state ==  Contractor_State.Pending) {
+			for (uint8 i = 0; i < c.requestRefereeNumber; ++i) {
+				if (c.refereeDrawDatas[i] == c.drawData )
 					nDraw++;
 			}
 
-			if ( nDraw >= (c.requestRefereeNumber+1)/2 ) 
-			{
+			if ( nDraw >= (c.requestRefereeNumber+1)/2 ) {
 				c.safed = true;
 				c.state = Contractor_State.Success;
 			} 
-			else 
-			{
+			else {
 				c.safed = false;
 				c.state = Contractor_State.Failed;
 			}				
@@ -381,15 +370,13 @@ contract VAC
 	}
 
 	//Transactionally return drawData, overriding VACRetriever
-	function getVACDrawDataTransactional(uint _contractorId) public returns (bytes8)
-	{	
+	function getVACDrawDataTransactional(uint _contractorId) public returns (bytes8) {	
         Contractor c = contractors[_contractorId];
 		return c.drawData;
 	}	
 	
 	//execute by the contract
-	function FinishContract(uint _contractorId) 
-	{
+	function FinishContract(uint _contractorId) {
         Contractor c = contractors[_contractorId];
 		if ( c.state ==  Contractor_State.Success  || c.state ==  Contractor_State.Failed && c.contractAddress== msg.sender)
 			c.state = Contractor_State.Finished;
@@ -398,8 +385,7 @@ contract VAC
     /********** test use only
      Standard kill() function to recover funds 
      **********/
-    function kill()
-    { 
+    function kill() { 
         if (msg.sender == creator)
             suicide(creator);  // kills this contract and sends remaining funds back to creator
     }	

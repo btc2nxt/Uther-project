@@ -1,17 +1,11 @@
-/// Comet 0.0.1
-contract VACRetriever {
- 	bytes8 drawData = '';
-	function getVACDrawDataTransactional(uint _contractorId) public returns (bytes8)	{
-		drawData = '-1';
-		return drawData;
-	}
-}
+// Comet 0.0.2
 
+import "./VAC.sol";
 
-contract Comet is VACRetriever {
+contract Comet {
     uint maxChooseLen; //the contract contains choose ceiling, default 999
     uint8 maxDrawLen; //the contract contains draw ceiling, default 255
-    uint minAmount; //every tip can not overtake the max, default 1^18
+    uint minAmount; //every choose must be >=minAmount 1^18
 	uint8 winnerPercent; //default 20%
 	uint8 feePercent; //default 5%
     uint totalAmount;
@@ -25,7 +19,9 @@ contract Comet is VACRetriever {
 	bytes32 pattern; //define the accurate string fomula
 	uint8 requestRefereeNumber; //3-Max, minimize is 3 referees;
 	uint contractorID; //registerId in VAC
-	VACRetriever vac; //VAC smart contract;
+	VAC vac; //VAC address;
+	
+	bytes8 emptyDrawData;	
 
     struct Draw {
 		bytes32 drawName; //every draw may have different name
@@ -63,11 +59,13 @@ contract Comet is VACRetriever {
 
     function Comet(
 		uint _maxChooseLen, 
+		uint8 _maxDrawLen, 
 		uint _minAmount, 
 		uint8 _winnerPercent, 
 		uint8 _feePercent
 	) {
 		maxChooseLen = _maxChooseLen;
+		maxDrawLen = _maxDrawLen;
 		minAmount = _minAmount;
 		winnerPercent = _winnerPercent;
 		feePercent = _feePercent;
@@ -80,9 +78,18 @@ contract Comet is VACRetriever {
 		codeLink = 'github.com/btc2nxt';
 		pattern = '123:123|WL';
 		requestRefereeNumber = 3;
+		state = State.Created;
+		contractorID =1;
+		emptyDrawData = 0xff00ff00ff00ff00;		
+		//vac =VACRetriever(address('0xd545e1879f54a8bcb81e859a7e0c80520c09fec3'));
     }
 
-    // creator set a new draw after the last fininsed
+    function setVAC(address _vac, uint _contractorId) {
+		contractorID = _contractorId;		
+		vac = VAC(vac);
+	}
+	
+	// creator set a new draw after the last fininsed
     function newDraw(
 		bytes32 _drawName, 
 		uint _beginTime, 
@@ -92,7 +99,7 @@ contract Comet is VACRetriever {
 		uint nLen = draws.length;
 		//TO DO >=drawLen, will recycle the array
 		if (state == State.Created || state == State.Success && nLen < maxDrawLen) {
-			draws.push(Draw(_drawName, _beginTime, _endTime, _deadline, now,'', 0 ));
+			draws.push(Draw(_drawName, _beginTime, _endTime, _deadline, now,0x010203, 0 ));
 			//ensure push ok
 			if (nLen < draws.length)
 				state = State.Active;
@@ -115,9 +122,13 @@ contract Comet is VACRetriever {
     function getDrawDataFromVAC() {
 		bytes8 drawData = vac.getVACDrawDataTransactional(contractorID);		
  		Draw d =draws[draws.length-1];
-		d.drawData = drawData;
+		if (now <= d.endTime) return ;//throw;
+		
+		d.drawData = drawData; //get wrong data
+		d.drawData = 0x010203;
+		
 		// drawData is Ok
-		if (drawData ==0xff00ff00ff00ff00)
+		if (drawData == emptyDrawData)
 			state = State.Refund;
 		else
 			state = State.Funding;
@@ -130,13 +141,17 @@ contract Comet is VACRetriever {
 		drawId--;
 		Draw d =draws[drawId];		
 		if (state == State.Funding) {
+			uint8 chooseNumber = 0;
 			for (uint8 i = 0; i < chooses.length; ++i) {
 				if (chooses[i].drawId == drawId  && chooses[i].data == d.drawData) {
 					chooses[i].refundAmount = chooses[i].amount*(200-feePercent)/100;
 					chooses[i].asker.send(chooses[i].amount*(200-feePercent)/100);
+					chooseNumber++;
 				}
 			}
 			state = State.Success;
+			totalAmount = totalAmount + d.chooseTotal;
+			totalChoose = totalChoose + chooseNumber;
 			//pay feePercent*requestRefereeNumber% to VAC
 			vac.send(d.chooseTotal*feePercent*requestRefereeNumber/10000);
 		} 
